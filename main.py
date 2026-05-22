@@ -17,6 +17,7 @@ import io
 import os
 import re
 import logging
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -94,6 +95,7 @@ def sanitize_filename(name: str) -> str:
 # ──────────────────────────────────────────────
 _drive_client = None
 _docs_client  = None
+_google_creds_expiry: float = 0
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
@@ -101,8 +103,8 @@ SCOPES = [
 ]
 
 def get_google_clients():
-    global _drive_client, _docs_client
-    if _drive_client is None:
+    global _drive_client, _docs_client, _google_creds_expiry
+    if _drive_client is None or time.time() > _google_creds_expiry:
         if SERVICE_ACCOUNT_FILE and os.path.exists(SERVICE_ACCOUNT_FILE):
             # Local dev: use service account JSON file
             creds = service_account.Credentials.from_service_account_file(
@@ -113,6 +115,7 @@ def get_google_clients():
             creds, _ = google_auth_default(scopes=SCOPES)
         _drive_client = build("drive", "v3", credentials=creds)
         _docs_client  = build("docs",  "v1", credentials=creds)
+        _google_creds_expiry = time.time() + 3000
     return _drive_client, _docs_client
 
 # ──────────────────────────────────────────────
@@ -120,8 +123,10 @@ def get_google_clients():
 # ──────────────────────────────────────────────
 _sf_token:    str | None = None
 _sf_instance: str | None = None
+_sf_token_expiry: float = 0
 
 def get_sf_token() -> tuple[str, str]:
+    global _sf_token_expiry
     for url in [
         f"{SF_LOGIN_DOMAIN}/services/oauth2/token",
         "https://login.salesforce.com/services/oauth2/token",
@@ -134,6 +139,7 @@ def get_sf_token() -> tuple[str, str]:
             }, timeout=30)
             if r.status_code == 200:
                 j = r.json()
+                _sf_token_expiry = time.time() + 6900
                 return j["access_token"], j.get("instance_url", SF_LOGIN_DOMAIN)
         except Exception as e:
             log.warning("SF token attempt failed: %s", e)
@@ -141,7 +147,7 @@ def get_sf_token() -> tuple[str, str]:
 
 def sf_patch(record_id: str, payload: dict):
     global _sf_token, _sf_instance
-    if not _sf_token:
+    if not _sf_token or time.time() > _sf_token_expiry:
         _sf_token, _sf_instance = get_sf_token()
 
     url = f"{_sf_instance}/services/data/v{SF_API_VERSION}/sobjects/NBFC_Onboarding__c/{record_id}"
@@ -291,6 +297,15 @@ def generate_invoice(
             "Follow_Up_Date_Time_NBFC__c": now_utc,
         })
         log.info("SF record %s updated.", payload.recordId)
+        log.info(
+            "AUDIT | record_id=%s invoice=%s pdf=%s uid=%s nbfc=%s timestamp=%s",
+            payload.recordId,
+            payload.invoiceNumber,
+            pdf_url,
+            payload.uid,
+            payload.nbfcName,
+            now_utc
+        )
     except Exception as e:
         log.error("Salesforce PATCH failed: %s", e)
         # Invoice already generated — return partial success with PDF URL
