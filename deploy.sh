@@ -31,7 +31,7 @@ echo "▶ Creating secrets..."
 
 # Run these manually with your actual values:
 # echo -n "your_x_api_key"       | gcloud secrets create X_API_KEY --data-file=-
-# echo -n "your_sf_client_id"    | gcloud secrets create SF_CLIENT_ID --data-file=-
+# echo -n "YOUR_SF_CLIENT_ID"    | gcloud secrets create SF_CLIENT_ID --data-file=-
 # echo -n "your_sf_client_secret"| gcloud secrets create SF_CLIENT_SECRET --data-file=-
 
 # ── STEP 5: Deploy to Cloud Run ──────────────────────────────
@@ -45,10 +45,10 @@ gcloud run deploy $SERVICE_NAME \
   --cpu 1 \
   --timeout 120 \
   --set-env-vars "\
-GOOGLE_TEMPLATE_FILE_ID=1pvGURo7MtJSyqq3KkkNgk8TeG9oBxP6VZ-rUw3QIRXA,\
-GOOGLE_DOCS_FOLDER_ID=1xLiHJvukOFpl9Q8dwXxsTMTWxjLvxTOg,\
-GOOGLE_PDFS_FOLDER_ID=YOUR_PDFS_FOLDER_ID,\
-SF_LOGIN_DOMAIN=https://computing-ability-6555.my.salesforce.com,\
+GOOGLE_TEMPLATE_FILE_ID=YOUR_GOOGLE_TEMPLATE_FILE_ID,\
+GOOGLE_DOCS_FOLDER_ID=YOUR_GOOGLE_DOCS_FOLDER_ID,\
+GOOGLE_PDFS_FOLDER_ID=YOUR_GOOGLE_PDFS_FOLDER_ID,\
+SF_LOGIN_DOMAIN=YOUR_SF_LOGIN_DOMAIN,\
 SF_API_VERSION=61.0" \
   --set-secrets "\
 X_API_KEY=X_API_KEY:latest,\
