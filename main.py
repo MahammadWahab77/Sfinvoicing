@@ -225,6 +225,7 @@ def generate_invoice(
             fileId=TEMPLATE_FILE_ID,
             body={"name": doc_name, "parents": [DOCS_FOLDER_ID]},
             fields="id",
+            supportsAllDrives=True,
         ).execute()
     except Exception as e:
         log.error("Template copy failed: %s", e)
@@ -274,12 +275,14 @@ def generate_invoice(
             body={"name": pdf_name, "parents": [PDFS_FOLDER_ID]},
             media_body=media,
             fields="id",
+            supportsAllDrives=True,
         ).execute()
         pdf_file_id = created["id"]
         drive.permissions().create(
             fileId=pdf_file_id,
             body={"type": "anyone", "role": "reader"},
             fields="id",
+            supportsAllDrives=True,
         ).execute()
     except Exception as e:
         log.error("PDF upload failed: %s", e)
