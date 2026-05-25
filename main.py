@@ -31,6 +31,7 @@ SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 GOOGLE_OAUTH_CLIENT_ID     = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
 GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
+ENABLE_DEBUG_ENDPOINTS     = os.environ.get("ENABLE_DEBUG_ENDPOINTS", "false").lower() == "true"
 
 PLACEHOLDER_MAP = {
     "FFInvoiceNumber":     "invoiceNumber",
@@ -152,6 +153,8 @@ def health():
 
 @app.get("/debug-google-auth")
 def debug_google_auth(x_api_key: str = Header(..., alias="x-api-key")):
+    if not ENABLE_DEBUG_ENDPOINTS:
+        raise HTTPException(status_code=403, detail="Debug endpoints are disabled.")
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key.")
 
@@ -170,11 +173,14 @@ def debug_google_auth(x_api_key: str = Header(..., alias="x-api-key")):
 
 @app.post("/debug-drive-copy")
 def debug_drive_copy(x_api_key: str = Header(..., alias="x-api-key")):
+    if not ENABLE_DEBUG_ENDPOINTS:
+        raise HTTPException(status_code=403, detail="Debug endpoints are disabled.")
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key.")
 
     drive, _ = get_google_clients()
     copy_name = f"debug-drive-copy-{int(time.time())}"
+    copy_id = None
     try:
         copied = drive.files().copy(
             fileId=TEMPLATE_FILE_ID,
@@ -183,8 +189,20 @@ def debug_drive_copy(x_api_key: str = Header(..., alias="x-api-key")):
             supportsAllDrives=True,
         ).execute()
         copy_id = copied["id"]
-        drive.files().delete(fileId=copy_id, supportsAllDrives=True).execute()
-        return {"status": "success", "message": f"Copy succeeded: {copy_id} ({copy_name}) and was deleted."}
+
+        try:
+            drive.files().delete(fileId=copy_id, supportsAllDrives=True).execute()
+            return {"status": "success", "message": f"Copy succeeded: {copy_id} ({copy_name}) and was deleted."}
+        except Exception as delete_err:
+            log.warning("Debug copy cleanup failed for %s: %s", copy_id, delete_err)
+            return {
+                "status": "partial_success",
+                "message": "Copy succeeded but delete failed.",
+                "copy_id": copy_id,
+                "copied": True,
+                "deleted": False,
+                "delete_error": str(delete_err)
+            }
     except Exception as e:
         log.error("Debug Drive copy failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Debug Drive copy failed: {str(e)}")
@@ -229,6 +247,13 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
     except Exception as e:
         log.error("PDF upload failed: %s", e)
         raise HTTPException(status_code=500, detail=f"PDF upload failed: {e}")
+
+    try:
+        drive.files().delete(fileId=doc_id, supportsAllDrives=True).execute()
+        log.info("Temporary doc %s deleted.", doc_id)
+    except Exception as e:
+        log.warning("Failed to delete temporary doc %s: %s", doc_id, e)
+
     pdf_url = f"https://drive.google.com/file/d/{pdf_file_id}/view?usp=sharing"
     log.info("PDF ready: %s", pdf_url)
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
