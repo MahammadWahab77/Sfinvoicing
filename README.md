@@ -76,6 +76,9 @@ POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders �
 |---|---|---|
 | `X_API_KEY` | Yes | API key for authenticating requests to this service. |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | No | Path to Google Service Account JSON file (for local dev). |
+| `GOOGLE_OAUTH_CLIENT_ID` | No | Google OAuth Client ID. Overrides service account if present. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | No | Google OAuth Client Secret. Overrides service account if present. |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | No | Google OAuth Refresh Token. Overrides service account if present. |
 | `GOOGLE_TEMPLATE_FILE_ID` | Yes | File ID of the Google Docs template. |
 | `GOOGLE_DOCS_FOLDER_ID` | Yes | Folder ID where temporary Google Docs will be created. |
 | `GOOGLE_PDFS_FOLDER_ID` | Yes | Folder ID where generated PDFs will be stored. |
