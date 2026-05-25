@@ -8,6 +8,7 @@ import requests
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials as UserCredentials
 from google.auth import default as google_auth_default
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -26,6 +27,11 @@ SF_API_VERSION       = os.environ.get("SF_API_VERSION", "61.0")
 SF_CLIENT_ID         = os.environ["SF_CLIENT_ID"]
 SF_CLIENT_SECRET     = os.environ["SF_CLIENT_SECRET"]
 SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+
+GOOGLE_OAUTH_CLIENT_ID     = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
+ENABLE_DEBUG_ENDPOINTS     = os.environ.get("ENABLE_DEBUG_ENDPOINTS", "false").lower() == "true"
 
 PLACEHOLDER_MAP = {
     "FFInvoiceNumber":     "invoiceNumber",
@@ -68,10 +74,24 @@ SCOPES = [
 def get_google_clients():
     global _drive_client, _docs_client, _google_creds_expiry
     if _drive_client is None or time.time() > _google_creds_expiry:
-        if SERVICE_ACCOUNT_FILE and os.path.exists(SERVICE_ACCOUNT_FILE):
+        if GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REFRESH_TOKEN:
+            auth_mode = "oauth_user"
+            creds = UserCredentials(
+                token=None,
+                refresh_token=GOOGLE_OAUTH_REFRESH_TOKEN,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=GOOGLE_OAUTH_CLIENT_ID,
+                client_secret=GOOGLE_OAUTH_CLIENT_SECRET,
+                scopes=SCOPES,
+            )
+        elif SERVICE_ACCOUNT_FILE and os.path.exists(SERVICE_ACCOUNT_FILE):
+            auth_mode = "service_account_json"
             creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
         else:
+            auth_mode = "adc"
             creds, _ = google_auth_default(scopes=SCOPES)
+
+        log.info("Google Auth Mode: %s", auth_mode)
         _drive_client = build("drive", "v3", credentials=creds)
         _docs_client  = build("docs",  "v1", credentials=creds)
         _google_creds_expiry = time.time() + 3000
@@ -131,6 +151,62 @@ app = FastAPI(title="NxtWave Invoice Generation Service", version="1.0.0")
 def health():
     return {"status": "ok"}
 
+@app.get("/debug-google-auth")
+def debug_google_auth(x_api_key: str = Header(..., alias="x-api-key")):
+    if not ENABLE_DEBUG_ENDPOINTS:
+        raise HTTPException(status_code=403, detail="Debug endpoints are disabled.")
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key.")
+
+    auth_mode = "adc"
+    if GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REFRESH_TOKEN:
+        auth_mode = "oauth_user"
+    elif SERVICE_ACCOUNT_FILE and os.path.exists(SERVICE_ACCOUNT_FILE):
+        auth_mode = "service_account_json"
+
+    return {
+        "google_auth_mode": auth_mode,
+        "has_oauth_client_id": bool(GOOGLE_OAUTH_CLIENT_ID),
+        "has_oauth_client_secret": bool(GOOGLE_OAUTH_CLIENT_SECRET),
+        "has_oauth_refresh_token": bool(GOOGLE_OAUTH_REFRESH_TOKEN)
+    }
+
+@app.post("/debug-drive-copy")
+def debug_drive_copy(x_api_key: str = Header(..., alias="x-api-key")):
+    if not ENABLE_DEBUG_ENDPOINTS:
+        raise HTTPException(status_code=403, detail="Debug endpoints are disabled.")
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key.")
+
+    drive, _ = get_google_clients()
+    copy_name = f"debug-drive-copy-{int(time.time())}"
+    copy_id = None
+    try:
+        copied = drive.files().copy(
+            fileId=TEMPLATE_FILE_ID,
+            body={"name": copy_name, "parents": [DOCS_FOLDER_ID]},
+            fields="id",
+            supportsAllDrives=True,
+        ).execute()
+        copy_id = copied["id"]
+
+        try:
+            drive.files().delete(fileId=copy_id, supportsAllDrives=True).execute()
+            return {"status": "success", "message": f"Copy succeeded: {copy_id} ({copy_name}) and was deleted."}
+        except Exception as delete_err:
+            log.warning("Debug copy cleanup failed for %s: %s", copy_id, delete_err)
+            return {
+                "status": "partial_success",
+                "message": "Copy succeeded but delete failed.",
+                "copy_id": copy_id,
+                "copied": True,
+                "deleted": False,
+                "delete_error": str(delete_err)
+            }
+    except Exception as e:
+        log.error("Debug Drive copy failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Debug Drive copy failed: {str(e)}")
+
 @app.post("/generate-invoice")
 def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias="x-api-key")):
     if x_api_key != API_KEY:
@@ -171,6 +247,15 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
     except Exception as e:
         log.error("PDF upload failed: %s", e)
         raise HTTPException(status_code=500, detail=f"PDF upload failed: {e}")
+
+    doc_deleted = False
+    try:
+        drive.files().delete(fileId=doc_id, supportsAllDrives=True).execute()
+        log.info("Temporary doc %s deleted.", doc_id)
+        doc_deleted = True
+    except Exception as e:
+        log.warning("Failed to delete temporary doc %s: %s", doc_id, e)
+
     pdf_url = f"https://drive.google.com/file/d/{pdf_file_id}/view?usp=sharing"
     log.info("PDF ready: %s", pdf_url)
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
@@ -180,5 +265,20 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
         log.info("AUDIT | record_id=%s invoice=%s pdf=%s uid=%s nbfc=%s timestamp=%s", payload.recordId, payload.invoiceNumber, pdf_url, payload.uid, payload.nbfcName, now_utc)
     except Exception as e:
         log.error("Salesforce PATCH failed: %s", e)
-        return JSONResponse(status_code=207, content={"status": "partial_success", "message": "Invoice generated but Salesforce update failed.", "pdf_url": pdf_url, "doc_url": doc_url, "sf_error": str(e)})
-    return {"status": "success", "message": "Invoice generated and Salesforce record updated.", "pdf_url": pdf_url, "doc_url": doc_url, "record_id": payload.recordId, "generated_at": now_utc}
+        return JSONResponse(status_code=207, content={
+            "status": "partial_success",
+            "message": "Invoice generated but Salesforce update failed.",
+            "pdf_url": pdf_url,
+            "doc_url": None,
+            "temporary_doc_deleted": doc_deleted,
+            "sf_error": str(e)
+        })
+    return {
+        "status": "success",
+        "message": "Invoice generated and Salesforce record updated.",
+        "pdf_url": pdf_url,
+        "doc_url": None,
+        "temporary_doc_deleted": doc_deleted,
+        "record_id": payload.recordId,
+        "generated_at": now_utc
+    }
