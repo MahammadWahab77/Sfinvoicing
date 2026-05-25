@@ -39,7 +39,8 @@ POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders �
   "status": "success",
   "message": "Invoice generated and Salesforce record updated.",
   "pdf_url": "https://drive.google.com/file/d/.../view?usp=sharing",
-  "doc_url": "https://docs.google.com/document/d/.../edit",
+  "doc_url": null,
+  "temporary_doc_deleted": true,
   "record_id": "...",
   "generated_at": "2023-10-27T10:00:00+00:00"
 }
@@ -51,7 +52,8 @@ POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders �
   "status": "partial_success",
   "message": "Invoice generated but Salesforce update failed.",
   "pdf_url": "...",
-  "doc_url": "...",
+  "doc_url": null,
+  "temporary_doc_deleted": true,
   "sf_error": "..."
 }
 ```

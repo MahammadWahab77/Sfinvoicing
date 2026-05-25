@@ -248,9 +248,11 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
         log.error("PDF upload failed: %s", e)
         raise HTTPException(status_code=500, detail=f"PDF upload failed: {e}")
 
+    doc_deleted = False
     try:
         drive.files().delete(fileId=doc_id, supportsAllDrives=True).execute()
         log.info("Temporary doc %s deleted.", doc_id)
+        doc_deleted = True
     except Exception as e:
         log.warning("Failed to delete temporary doc %s: %s", doc_id, e)
 
@@ -263,5 +265,20 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
         log.info("AUDIT | record_id=%s invoice=%s pdf=%s uid=%s nbfc=%s timestamp=%s", payload.recordId, payload.invoiceNumber, pdf_url, payload.uid, payload.nbfcName, now_utc)
     except Exception as e:
         log.error("Salesforce PATCH failed: %s", e)
-        return JSONResponse(status_code=207, content={"status": "partial_success", "message": "Invoice generated but Salesforce update failed.", "pdf_url": pdf_url, "doc_url": doc_url, "sf_error": str(e)})
-    return {"status": "success", "message": "Invoice generated and Salesforce record updated.", "pdf_url": pdf_url, "doc_url": doc_url, "record_id": payload.recordId, "generated_at": now_utc}
+        return JSONResponse(status_code=207, content={
+            "status": "partial_success",
+            "message": "Invoice generated but Salesforce update failed.",
+            "pdf_url": pdf_url,
+            "doc_url": None,
+            "temporary_doc_deleted": doc_deleted,
+            "sf_error": str(e)
+        })
+    return {
+        "status": "success",
+        "message": "Invoice generated and Salesforce record updated.",
+        "pdf_url": pdf_url,
+        "doc_url": None,
+        "temporary_doc_deleted": doc_deleted,
+        "record_id": payload.recordId,
+        "generated_at": now_utc
+    }
