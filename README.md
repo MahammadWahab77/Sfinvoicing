@@ -4,7 +4,15 @@
 This service receives a POST payload, copies a Google Docs master template, fills placeholders with the provided data, exports the document to PDF, uploads it to Google Drive, and finally updates the corresponding Salesforce record with the invoice link and status.
 
 ### Architecture diagram
-POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders → Export PDF → Upload to Drive → Delete Temporary Doc → PATCH Salesforce → Return response
+POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders → Export PDF → Upload to Drive → Delete Temporary Doc → (Optional) PATCH Salesforce → Return response
+
+### Recommended Architecture
+To avoid potential `INVALID_CROSS_REFERENCE_KEY` or object context issues when patching Salesforce from an external service, we recommend:
+1. Salesforce Apex calls `/generate-invoice`.
+2. Python service generates the PDF and returns the `pdf_url`.
+3. Salesforce Apex receives the response and updates the record itself using its own session/object context.
+
+Python-side Salesforce PATCH is **disabled by default** via `ENABLE_SALESFORCE_PATCH=false`.
 
 ### Endpoint
 **POST** `/generate-invoice`
@@ -99,6 +107,7 @@ POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders �
 | `SF_API_VERSION` | No | Salesforce API version (defaults to 61.0). |
 | `SF_CLIENT_ID` | Yes | Salesforce Connected App Client ID. |
 | `SF_CLIENT_SECRET` | Yes | Salesforce Connected App Client Secret. |
+| `ENABLE_SALESFORCE_PATCH` | No | If "true", Python will PATCH the Salesforce record directly. Defaults to "false". |
 | `INVOICE_WEBHOOK_URL` | No | Salesforce webhook endpoint URL. If omitted, webhook delivery is skipped. |
 | `INVOICE_WEBHOOK_TIMEOUT_SECONDS` | No | Timeout for the webhook request in seconds. Defaults to 30. |
 | `INVOICE_WEBHOOK_SECRET` | No | Optional shared secret sent as x-webhook-secret for Salesforce webhook validation. |

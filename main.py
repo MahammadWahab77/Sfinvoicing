@@ -32,6 +32,7 @@ GOOGLE_OAUTH_CLIENT_ID     = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
 GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
 ENABLE_DEBUG_ENDPOINTS     = os.environ.get("ENABLE_DEBUG_ENDPOINTS", "false").lower() == "true"
+ENABLE_SALESFORCE_PATCH    = os.environ.get("ENABLE_SALESFORCE_PATCH", "false").lower() == "true"
 
 def parse_int_env(name: str, default: int) -> int:
     try:
@@ -318,12 +319,37 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
             "error": str(e),
         }
 
+    if not ENABLE_SALESFORCE_PATCH:
+        sf_status = "skipped"
+        sf_result = {"enabled": False, "skipped": True, "reason": "ENABLE_SALESFORCE_PATCH is false"}
+        log.info("SF PATCH skipped for record %s", payload.recordId)
+        log.info("AUDIT | record_id=%s invoice=%s pdf=%s uid=%s nbfc=%s timestamp=%s sf_patch=%s",
+                 payload.recordId, payload.invoiceNumber, pdf_url, payload.uid, payload.nbfcName, now_utc, sf_status)
+        return {
+            "status": "success",
+            "message": "Invoice generated.",
+            "pdf_url": pdf_url,
+            "doc_url": None,
+            "temporary_doc_deleted": doc_deleted,
+            "record_id": payload.recordId,
+            "generated_at": now_utc,
+            "webhook_result": webhook_result,
+            "salesforce_patch": sf_result
+        }
+
     try:
         sf_patch(payload.recordId, {"Invoice_Links__c": pdf_url, "Invoice_status__c": "Invoice Generated", "Follow_Up_Date_Time_NBFC__c": now_utc})
+        sf_status = "success"
+        sf_result = {"enabled": True, "skipped": False, "status": "success"}
         log.info("SF record %s updated.", payload.recordId)
-        log.info("AUDIT | record_id=%s invoice=%s pdf=%s uid=%s nbfc=%s timestamp=%s", payload.recordId, payload.invoiceNumber, pdf_url, payload.uid, payload.nbfcName, now_utc)
+        log.info("AUDIT | record_id=%s invoice=%s pdf=%s uid=%s nbfc=%s timestamp=%s sf_patch=%s",
+                 payload.recordId, payload.invoiceNumber, pdf_url, payload.uid, payload.nbfcName, now_utc, sf_status)
     except Exception as e:
+        sf_status = "failed"
+        sf_result = {"enabled": True, "skipped": False, "status": "failed", "error": str(e)}
         log.error("Salesforce PATCH failed: %s", e)
+        log.info("AUDIT | record_id=%s invoice=%s pdf=%s uid=%s nbfc=%s timestamp=%s sf_patch=%s",
+                 payload.recordId, payload.invoiceNumber, pdf_url, payload.uid, payload.nbfcName, now_utc, sf_status)
         return JSONResponse(status_code=207, content={
             "status": "partial_success",
             "message": "Invoice generated but Salesforce update failed.",
@@ -331,8 +357,10 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
             "doc_url": None,
             "temporary_doc_deleted": doc_deleted,
             "sf_error": str(e),
-            "webhook_result": webhook_result
+            "webhook_result": webhook_result,
+            "salesforce_patch": sf_result
         })
+
     return {
         "status": "success",
         "message": "Invoice generated and Salesforce record updated.",
@@ -341,5 +369,6 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
         "temporary_doc_deleted": doc_deleted,
         "record_id": payload.recordId,
         "generated_at": now_utc,
-        "webhook_result": webhook_result
+        "webhook_result": webhook_result,
+        "salesforce_patch": sf_result
     }
