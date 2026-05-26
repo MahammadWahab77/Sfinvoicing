@@ -33,6 +33,7 @@ echo "▶ Creating secrets..."
 # echo -n "your_x_api_key"       | gcloud secrets create X_API_KEY --data-file=-
 # echo -n "YOUR_SF_CLIENT_ID"    | gcloud secrets create SF_CLIENT_ID --data-file=-
 # echo -n "your_sf_client_secret"| gcloud secrets create SF_CLIENT_SECRET --data-file=-
+# echo -n "your_webhook_secret"  | gcloud secrets create INVOICE_WEBHOOK_SECRET --data-file=-
 
 # ── STEP 5: Deploy to Cloud Run ──────────────────────────────
 echo "▶ Deploying to Cloud Run..."
@@ -55,7 +56,8 @@ INVOICE_WEBHOOK_TIMEOUT_SECONDS=30" \
   --set-secrets "\
 X_API_KEY=X_API_KEY:latest,\
 SF_CLIENT_ID=SF_CLIENT_ID:latest,\
-SF_CLIENT_SECRET=SF_CLIENT_SECRET:latest"
+SF_CLIENT_SECRET=SF_CLIENT_SECRET:latest,\
+INVOICE_WEBHOOK_SECRET=INVOICE_WEBHOOK_SECRET:latest"
 
 echo ""
 echo "✅ Deployed! Service URL:"

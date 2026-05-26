@@ -33,11 +33,16 @@ GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
 GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
 ENABLE_DEBUG_ENDPOINTS     = os.environ.get("ENABLE_DEBUG_ENDPOINTS", "false").lower() == "true"
 
-INVOICE_WEBHOOK_URL = os.environ.get(
-    "INVOICE_WEBHOOK_URL",
-    "https://computing-ability-6555--devac.sandbox.my.salesforce-sites.com/services/apexrest/InvoiceWebhook"
-)
-INVOICE_WEBHOOK_TIMEOUT_SECONDS = int(os.environ.get("INVOICE_WEBHOOK_TIMEOUT_SECONDS", "30"))
+def parse_int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        log.warning("Invalid integer for %s. Using default: %s", name, default)
+        return default
+
+INVOICE_WEBHOOK_URL = os.environ.get("INVOICE_WEBHOOK_URL", "")
+INVOICE_WEBHOOK_TIMEOUT_SECONDS = parse_int_env("INVOICE_WEBHOOK_TIMEOUT_SECONDS", 30)
+INVOICE_WEBHOOK_SECRET = os.environ.get("INVOICE_WEBHOOK_SECRET", "")
 
 PLACEHOLDER_MAP = {
     "FFInvoiceNumber":     "invoiceNumber",
@@ -152,18 +157,32 @@ class InvoicePayload(BaseModel):
     recordId:          str
 
 def send_invoice_webhook(payload: InvoicePayload, pdf_url: str, generated_at: str) -> dict:
+    if not INVOICE_WEBHOOK_URL:
+        return {
+            "sent": False,
+            "skipped": True,
+            "reason": "INVOICE_WEBHOOK_URL is not configured"
+        }
+
     webhook_payload = {
+        "event": "invoice.pdf_generated",
         "recordId": payload.recordId,
         "invoiceLink": pdf_url,
         "invoiceNumber": payload.invoiceNumber,
         "uid": payload.uid,
         "nbfcName": payload.nbfcName,
         "generatedAt": generated_at,
+        "idempotencyKey": f"{payload.recordId}:{payload.invoiceNumber}",
     }
+
+    headers = {"Content-Type": "application/json"}
+    if INVOICE_WEBHOOK_SECRET:
+        headers["x-webhook-secret"] = INVOICE_WEBHOOK_SECRET
+
     response = requests.post(
         INVOICE_WEBHOOK_URL,
         json=webhook_payload,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         timeout=INVOICE_WEBHOOK_TIMEOUT_SECONDS,
     )
     if response.status_code < 200 or response.status_code >= 300:
