@@ -33,6 +33,12 @@ GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
 GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
 ENABLE_DEBUG_ENDPOINTS     = os.environ.get("ENABLE_DEBUG_ENDPOINTS", "false").lower() == "true"
 
+INVOICE_WEBHOOK_URL = os.environ.get(
+    "INVOICE_WEBHOOK_URL",
+    "https://computing-ability-6555--devac.sandbox.my.salesforce-sites.com/services/apexrest/InvoiceWebhook"
+)
+INVOICE_WEBHOOK_TIMEOUT_SECONDS = int(os.environ.get("INVOICE_WEBHOOK_TIMEOUT_SECONDS", "30"))
+
 PLACEHOLDER_MAP = {
     "FFInvoiceNumber":     "invoiceNumber",
     "FFBillToName":        "billTo",
@@ -144,6 +150,29 @@ class InvoicePayload(BaseModel):
     itemName:          str
     rate:              str
     recordId:          str
+
+def send_invoice_webhook(payload: InvoicePayload, pdf_url: str, generated_at: str) -> dict:
+    webhook_payload = {
+        "recordId": payload.recordId,
+        "invoiceLink": pdf_url,
+        "invoiceNumber": payload.invoiceNumber,
+        "uid": payload.uid,
+        "nbfcName": payload.nbfcName,
+        "generatedAt": generated_at,
+    }
+    response = requests.post(
+        INVOICE_WEBHOOK_URL,
+        json=webhook_payload,
+        headers={"Content-Type": "application/json"},
+        timeout=INVOICE_WEBHOOK_TIMEOUT_SECONDS,
+    )
+    if response.status_code < 200 or response.status_code >= 300:
+        raise RuntimeError(f"Invoice webhook failed {response.status_code}: {response.text[:500]}")
+    return {
+        "sent": True,
+        "status_code": response.status_code,
+        "response": response.text[:500],
+    }
 
 app = FastAPI(title="NxtWave Invoice Generation Service", version="1.0.0")
 
@@ -259,6 +288,17 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
     pdf_url = f"https://drive.google.com/file/d/{pdf_file_id}/view?usp=sharing"
     log.info("PDF ready: %s", pdf_url)
     now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+    try:
+        webhook_result = send_invoice_webhook(payload, pdf_url, now_utc)
+        log.info("Invoice webhook sent for record %s", payload.recordId)
+    except Exception as e:
+        log.error("Invoice webhook failed: %s", e)
+        webhook_result = {
+            "sent": False,
+            "error": str(e),
+        }
+
     try:
         sf_patch(payload.recordId, {"Invoice_Links__c": pdf_url, "Invoice_status__c": "Invoice Generated", "Follow_Up_Date_Time_NBFC__c": now_utc})
         log.info("SF record %s updated.", payload.recordId)
@@ -271,7 +311,8 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
             "pdf_url": pdf_url,
             "doc_url": None,
             "temporary_doc_deleted": doc_deleted,
-            "sf_error": str(e)
+            "sf_error": str(e),
+            "webhook_result": webhook_result
         })
     return {
         "status": "success",
@@ -280,5 +321,6 @@ def generate_invoice(payload: InvoicePayload, x_api_key: str = Header(..., alias
         "doc_url": None,
         "temporary_doc_deleted": doc_deleted,
         "record_id": payload.recordId,
-        "generated_at": now_utc
+        "generated_at": now_utc,
+        "webhook_result": webhook_result
     }

@@ -89,6 +89,8 @@ POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders �
 | `SF_API_VERSION` | No | Salesforce API version (defaults to 61.0). |
 | `SF_CLIENT_ID` | Yes | Salesforce Connected App Client ID. |
 | `SF_CLIENT_SECRET` | Yes | Salesforce Connected App Client Secret. |
+| `INVOICE_WEBHOOK_URL` | No | Salesforce webhook endpoint URL. |
+| `INVOICE_WEBHOOK_TIMEOUT_SECONDS` | No | Timeout for the webhook request (defaults to 30). |
 
 ### Note on OAuth and Debug Endpoints
 - **OAuth Overrides**: If `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and `GOOGLE_OAUTH_REFRESH_TOKEN` are provided, the service uses OAuth user credentials, which avoids the `storageQuotaExceeded` error common with service accounts.
