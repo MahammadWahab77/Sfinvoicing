@@ -33,6 +33,7 @@ echo "▶ Creating secrets..."
 # echo -n "your_x_api_key"       | gcloud secrets create X_API_KEY --data-file=-
 # echo -n "YOUR_SF_CLIENT_ID"    | gcloud secrets create SF_CLIENT_ID --data-file=-
 # echo -n "your_sf_client_secret"| gcloud secrets create SF_CLIENT_SECRET --data-file=-
+# echo -n "your_webhook_secret"  | gcloud secrets create INVOICE_WEBHOOK_SECRET --data-file=-
 
 # ── STEP 5: Deploy to Cloud Run ──────────────────────────────
 echo "▶ Deploying to Cloud Run..."
@@ -49,11 +50,14 @@ GOOGLE_TEMPLATE_FILE_ID=YOUR_GOOGLE_TEMPLATE_FILE_ID,\
 GOOGLE_DOCS_FOLDER_ID=YOUR_GOOGLE_DOCS_FOLDER_ID,\
 GOOGLE_PDFS_FOLDER_ID=YOUR_GOOGLE_PDFS_FOLDER_ID,\
 SF_LOGIN_DOMAIN=YOUR_SF_LOGIN_DOMAIN,\
-SF_API_VERSION=61.0" \
+SF_API_VERSION=61.0,\
+INVOICE_WEBHOOK_URL=https://computing-ability-6555--devac.sandbox.my.salesforce-sites.com/services/apexrest/InvoiceWebhook,\
+INVOICE_WEBHOOK_TIMEOUT_SECONDS=30" \
   --set-secrets "\
 X_API_KEY=X_API_KEY:latest,\
 SF_CLIENT_ID=SF_CLIENT_ID:latest,\
-SF_CLIENT_SECRET=SF_CLIENT_SECRET:latest"
+SF_CLIENT_SECRET=SF_CLIENT_SECRET:latest,\
+INVOICE_WEBHOOK_SECRET=INVOICE_WEBHOOK_SECRET:latest"
 
 echo ""
 echo "✅ Deployed! Service URL:"

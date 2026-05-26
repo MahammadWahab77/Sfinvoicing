@@ -42,7 +42,12 @@ POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders �
   "doc_url": null,
   "temporary_doc_deleted": true,
   "record_id": "...",
-  "generated_at": "2023-10-27T10:00:00+00:00"
+  "generated_at": "2023-10-27T10:00:00+00:00",
+  "webhook_result": {
+    "sent": true,
+    "status_code": 200,
+    "response": "..."
+  }
 }
 ```
 
@@ -54,7 +59,12 @@ POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders �
   "pdf_url": "...",
   "doc_url": null,
   "temporary_doc_deleted": true,
-  "sf_error": "..."
+  "sf_error": "...",
+  "webhook_result": {
+    "sent": true,
+    "status_code": 200,
+    "response": "..."
+  }
 }
 ```
 
@@ -89,6 +99,35 @@ POST /generate-invoice → Auth Check → Copy Template → Fill Placeholders �
 | `SF_API_VERSION` | No | Salesforce API version (defaults to 61.0). |
 | `SF_CLIENT_ID` | Yes | Salesforce Connected App Client ID. |
 | `SF_CLIENT_SECRET` | Yes | Salesforce Connected App Client Secret. |
+| `INVOICE_WEBHOOK_URL` | No | Salesforce webhook endpoint URL. If omitted, webhook delivery is skipped. |
+| `INVOICE_WEBHOOK_TIMEOUT_SECONDS` | No | Timeout for the webhook request in seconds. Defaults to 30. |
+| `INVOICE_WEBHOOK_SECRET` | No | Optional shared secret sent as x-webhook-secret for Salesforce webhook validation. |
+
+### Invoice webhook
+After the PDF is generated and uploaded to Google Drive, the service sends a POST request to `INVOICE_WEBHOOK_URL` if configured.
+
+**Payload:**
+```json
+{
+  "event": "invoice.pdf_generated",
+  "recordId": "...",
+  "invoiceLink": "https://drive.google.com/file/d/.../view?usp=sharing",
+  "invoiceNumber": "...",
+  "uid": "...",
+  "nbfcName": "...",
+  "generatedAt": "2026-05-26T10:00:00+00:00",
+  "idempotencyKey": "recordId:invoiceNumber"
+}
+```
+
+**Headers:**
+- `Content-Type`: `application/json`
+- `x-webhook-secret`: Only sent when `INVOICE_WEBHOOK_SECRET` is configured.
+
+**Behavior:**
+- If webhook succeeds, `webhook_result.sent` is true.
+- If webhook fails, invoice generation continues and `webhook_result` contains the error.
+- If `INVOICE_WEBHOOK_URL` is not configured, webhook delivery is skipped (`skipped: true`).
 
 ### Note on OAuth and Debug Endpoints
 - **OAuth Overrides**: If `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and `GOOGLE_OAUTH_REFRESH_TOKEN` are provided, the service uses OAuth user credentials, which avoids the `storageQuotaExceeded` error common with service accounts.
